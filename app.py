@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Load CSV files
+# Load CSV files with caching
 @st.cache_data
 def load_data():
     countries = pd.read_csv("Countries.csv")
@@ -39,95 +39,130 @@ def load_data():
 
 countries, dates, devices, pages, queries, search_appearance = load_data()
 
-# Sidebar for filters
+# Sidebar for date range filter
 st.sidebar.header("Filter Options")
 date_range = st.sidebar.date_input("Select Date Range", 
                                    [dates['Date'].min(), dates['Date'].max()])
-country = st.sidebar.selectbox("Select Country", ["All"] + list(countries['Country'].unique()))
-device = st.sidebar.selectbox("Select Device", ["All"] + list(devices['Device'].unique()))
 
 # Filter data
 filtered_dates = dates[(dates['Date'] >= pd.to_datetime(date_range[0])) & 
                       (dates['Date'] <= pd.to_datetime(date_range[1]))]
-filtered_countries = countries if country == "All" else countries[countries['Country'] == country]
-filtered_devices = devices if device == "All" else devices[devices['Device'] == device]
 
 # Main dashboard title
 st.title("📈 HCI Direct SEO Performance Dashboard")
 st.markdown("Analyze SEO metrics for hcidirect.co.uk from Google Search Console")
 
-# KPIs
-st.subheader("Key Metrics")
+# Key Metrics (for selected date range)
+st.subheader("Key Metrics (for selected date range)")
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Clicks", f"{int(dates['Clicks'].sum())}", 
-            delta=f"{int(filtered_dates['Clicks'].sum() - dates['Clicks'].sum())}")
-col2.metric("Total Impressions", f"{int(dates['Impressions'].sum())}", 
-            delta=f"{int(filtered_dates['Impressions'].sum() - dates['Impressions'].sum())}")
-col3.metric("Average CTR", f"{dates['CTR'].mean():.2f}%", 
-            delta=f"{filtered_dates['CTR'].mean() - dates['CTR'].mean():.2f}%")
-col4.metric("Average Position", f"{dates['Position'].mean():.2f}", 
-            delta=f"{filtered_dates['Position'].mean() - dates['Position'].mean():.2f}")
+col1.metric("Total Clicks", f"{int(filtered_dates['Clicks'].sum())}")
+col2.metric("Total Impressions", f"{int(filtered_dates['Impressions'].sum())}")
+col3.metric("Average CTR", f"{filtered_dates['CTR'].mean():.2f}%")
+col4.metric("Average Position", f"{filtered_dates['Position'].mean():.2f}")
 
-# Visualizations
+# Performance Over Time
 st.subheader("Performance Over Time")
-fig_time = px.line(filtered_dates, x="Date", y=["Clicks", "Impressions"], 
-                   title="Clicks and Impressions Trend",
-                   labels={"value": "Count", "variable": "Metric"})
+metrics = st.multiselect("Select metrics", ["Clicks", "Impressions", "CTR", "Position"], 
+                         default=["Clicks", "Impressions"])
+fig_time = px.line(filtered_dates, x="Date", y=metrics, 
+                   title="Performance Trend",
+                   labels={"value": "Value", "variable": "Metric"})
 fig_time.update_layout(hovermode="x unified", template="plotly_white")
 st.plotly_chart(fig_time, use_container_width=True)
 
+# Correlation Heatmap
+st.subheader("Correlation Between Metrics")
+corr_matrix = filtered_dates[["Clicks", "Impressions", "CTR", "Position"]].corr()
+fig_corr = go.Figure(data=go.Heatmap(
+    z=corr_matrix.values,
+    x=corr_matrix.columns,
+    y=corr_matrix.index,
+    colorscale="Viridis",
+    zmin=-1, zmax=1,
+    text=corr_matrix.values.round(2),
+    texttemplate="%{text}",
+    hovertemplate="%{x} vs %{y}: %{z:.2f}"
+))
+fig_corr.update_layout(title="Correlation Heatmap", template="plotly_white")
+st.plotly_chart(fig_corr, use_container_width=True)
+
+# Top Queries by Clicks
 st.subheader("Top Queries by Clicks")
-fig_queries = px.bar(queries.head(10), x="Top queries", y="Clicks", 
-                     title="Top 10 Search Queries",
+top_n_queries = st.slider("Show top N queries", 5, 20, 10)
+fig_queries = px.bar(queries.head(top_n_queries), x="Top queries", y="Clicks", 
+                     title=f"Top {top_n_queries} Search Queries",
                      color="CTR", color_continuous_scale="Viridis")
 fig_queries.update_layout(template="plotly_white")
 st.plotly_chart(fig_queries, use_container_width=True)
 
+# Top Pages by Clicks
 st.subheader("Top Pages by Clicks")
-fig_pages = px.bar(pages.head(10), x="Top pages", y="Clicks", 
-                   title="Top 10 Pages",
+top_n_pages = st.slider("Show top N pages", 5, 20, 10)
+fig_pages = px.bar(pages.head(top_n_pages), x="Top pages", y="Clicks", 
+                   title=f"Top {top_n_pages} Pages",
                    color="CTR", color_continuous_scale="Plasma")
 fig_pages.update_layout(template="plotly_white", xaxis_tickangle=45)
 st.plotly_chart(fig_pages, use_container_width=True)
 
+# Performance by Country
 st.subheader("Performance by Country")
-fig_countries = px.choropleth(filtered_countries, 
+map_metric = st.selectbox("Select metric for map", ["Clicks", "Impressions", "CTR", "Position"])
+fig_countries = px.choropleth(countries, 
                               locations="Country", 
                               locationmode="country names",
-                              color="Clicks",
-                              hover_data=["Impressions", "CTR", "Position"],
-                              title="Clicks by Country",
+                              color=map_metric,
+                              hover_data=["Clicks", "Impressions", "CTR", "Position"],
+                              title=f"{map_metric} by Country",
                               color_continuous_scale="Blues")
 fig_countries.update_layout(template="plotly_white")
 st.plotly_chart(fig_countries, use_container_width=True)
 
+# Device Breakdown
 st.subheader("Device Breakdown")
-fig_devices = px.pie(filtered_devices, names="Device", values="Clicks", 
-                     title="Clicks by Device",
+device_metric = st.selectbox("Select metric for device breakdown", ["Clicks", "Impressions", "CTR", "Position"])
+fig_devices = px.pie(devices, names="Device", values=device_metric, 
+                     title=f"{device_metric} by Device",
                      color_discrete_sequence=px.colors.qualitative.Pastel)
 fig_devices.update_layout(template="plotly_white")
 st.plotly_chart(fig_devices, use_container_width=True)
 
+# Search Appearance
 st.subheader("Search Appearance")
-fig_search = px.bar(search_appearance, x="Search Appearance", y="Clicks", 
-                    title="Clicks by Search Appearance",
+search_metric = st.selectbox("Select metric for search appearance", ["Clicks", "Impressions", "CTR", "Position"])
+fig_search = px.bar(search_appearance, x="Search Appearance", y=search_metric, 
+                    title=f"{search_metric} by Search Appearance",
                     color="CTR", color_continuous_scale="Inferno")
 fig_search.update_layout(template="plotly_white")
 st.plotly_chart(fig_search, use_container_width=True)
 
-# Data tables
+# Detailed Data Tabs
 st.subheader("Detailed Data")
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Queries", "Pages", "Countries", "Devices", "Search Appearance"])
 with tab1:
     st.dataframe(queries)
+    st.download_button(label="Download Queries Data", 
+                       data=queries.to_csv(index=False).encode('utf-8'), 
+                       file_name='queries.csv', mime='text/csv')
 with tab2:
     st.dataframe(pages)
+    st.download_button(label="Download Pages Data", 
+                       data=pages.to_csv(index=False).encode('utf-8'), 
+                       file_name='pages.csv', mime='text/csv')
 with tab3:
-    st.dataframe(filtered_countries)
+    st.dataframe(countries)
+    st.download_button(label="Download Countries Data", 
+                       data=countries.to_csv(index=False).encode('utf-8'), 
+                       file_name='countries.csv', mime='text/csv')
 with tab4:
-    st.dataframe(filtered_devices)
+    st.dataframe(devices)
+    st.download_button(label="Download Devices Data", 
+                       data=devices.to_csv(index=False).encode('utf-8'), 
+                       file_name='devices.csv', mime='text/csv')
 with tab5:
     st.dataframe(search_appearance)
+    st.download_button(label="Download Search Appearance Data", 
+                       data=search_appearance.to_csv(index=False).encode('utf-8'), 
+                       file_name='search_appearance.csv', mime='text/csv')
 
 # Footer
 st.markdown("---")
