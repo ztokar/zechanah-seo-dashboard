@@ -1,99 +1,134 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime
 
-st.set_page_config(page_title="Zechanah Tokar SEO Dashboard", layout="wide")
+# Set page configuration for a wide, professional layout
+st.set_page_config(page_title="HCI Direct SEO Dashboard", layout="wide", page_icon="📊")
 
-# Custom Header with Branding
+# Custom CSS for styling
 st.markdown("""
-    <div style="background: linear-gradient(to right, #00FF00, #000000); padding: 30px 0; text-align: center;">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Picton_Upload_arrow_up.svg/240px-Picton_Upload_arrow_up.svg.png" width="60" />
-        <h1 style="color:#fff; font-family:Poppins,sans-serif; font-size:32px;">Zechanah Tokar SEO Dashboard</h1>
-        <p style="color:#ccc;">Interactive performance insights using Google Search Console data</p>
-    </div>
+    <style>
+    .main {background-color: #f5f5f5;}
+    .stMetric {background-color: #ffffff; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
+    .stSidebar {background-color: #ffffff;}
+    h1 {color: #2c3e50; font-family: 'Arial', sans-serif;}
+    .stButton>button {background-color: #3498db; color: white; border-radius: 5px;}
+    </style>
 """, unsafe_allow_html=True)
 
-# Upload files sidebar
-st.sidebar.header("📤 Upload GSC CSV Files")
-dates_file = st.sidebar.file_uploader("Upload Dates.csv", type="csv")
-queries_file = st.sidebar.file_uploader("Upload Queries.csv", type="csv")
-pages_file = st.sidebar.file_uploader("Upload Pages.csv", type="csv")
-devices_file = st.sidebar.file_uploader("Upload Devices.csv", type="csv")
-countries_file = st.sidebar.file_uploader("Upload Countries.csv", type="csv")
+# Load CSV files
+@st.cache_data
+def load_data():
+    countries = pd.read_csv("Countries.csv")
+    dates = pd.read_csv("Dates.csv")
+    devices = pd.read_csv("Devices.csv")
+    pages = pd.read_csv("Pages.csv")
+    queries = pd.read_csv("Queries.csv")
+    search_appearance = pd.read_csv("Search appearance.csv")
+    
+    # Clean data
+    for df in [countries, dates, devices, pages, queries, search_appearance]:
+        df['CTR'] = df['CTR'].str.rstrip('%').astype(float)
+    
+    # Convert Date to datetime
+    dates['Date'] = pd.to_datetime(dates['Date'])
+    
+    return countries, dates, devices, pages, queries, search_appearance
 
-if all([dates_file, queries_file, pages_file, devices_file, countries_file]):
-    # Load data
-    dates_df = pd.read_csv(dates_file)
-    queries_df = pd.read_csv(queries_file)
-    pages_df = pd.read_csv(pages_file)
-    devices_df = pd.read_csv(devices_file)
-    countries_df = pd.read_csv(countries_file)
+countries, dates, devices, pages, queries, search_appearance = load_data()
 
-    # Format %
-    for df in [dates_df, queries_df, pages_df]:
-        if 'CTR' in df.columns:
-            df['CTR'] = df['CTR'].astype(str).str.rstrip('%').astype(float)
+# Sidebar for filters
+st.sidebar.header("Filter Options")
+date_range = st.sidebar.date_input("Select Date Range", 
+                                   [dates['Date'].min(), dates['Date'].max()])
+country = st.sidebar.selectbox("Select Country", ["All"] + list(countries['Country'].unique()))
+device = st.sidebar.selectbox("Select Device", ["All"] + list(devices['Device'].unique()))
 
-    # KPI Metrics
-    st.subheader("🔢 Key Metrics Overview")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Clicks", int(dates_df['Clicks'].sum()))
-    k2.metric("Total Impressions", int(dates_df['Impressions'].sum()))
-    k3.metric("Average CTR", f"{dates_df['CTR'].mean():.1f}%")
-    k4.metric("Average Position", f"{dates_df['Position'].mean():.1f}")
+# Filter data
+filtered_dates = dates[(dates['Date'] >= pd.to_datetime(date_range[0])) & 
+                      (dates['Date'] <= pd.to_datetime(date_range[1]))]
+filtered_countries = countries if country == "All" else countries[countries['Country'] == country]
+filtered_devices = devices if device == "All" else devices[devices['Device'] == device]
 
-    st.markdown("----")
+# Main dashboard title
+st.title("📈 HCI Direct SEO Performance Dashboard")
+st.markdown("Analyze SEO metrics for hcidirect.co.uk from Google Search Console")
 
-    # Performance Trend
-    st.markdown("### 📈 Clicks & Impressions Over Time")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dates_df['Date'], y=dates_df['Clicks'], name='Clicks', line=dict(color='#00FF00')))
-    fig.add_trace(go.Scatter(x=dates_df['Date'], y=dates_df['Impressions'], name='Impressions', line=dict(color='#FFFFFF')))
-    fig.update_layout(template="plotly_dark", height=400, margin=dict(l=20, r=20, t=20, b=20))
-    st.plotly_chart(fig, use_container_width=True)
+# KPIs
+st.subheader("Key Metrics")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Clicks", f"{int(dates['Clicks'].sum())}", 
+            delta=f"{int(filtered_dates['Clicks'].sum() - dates['Clicks'].sum())}")
+col2.metric("Total Impressions", f"{int(dates['Impressions'].sum())}", 
+            delta=f"{int(filtered_dates['Impressions'].sum() - dates['Impressions'].sum())}")
+col3.metric("Average CTR", f"{dates['CTR'].mean():.2f}%", 
+            delta=f"{filtered_dates['CTR'].mean() - dates['CTR'].mean():.2f}%")
+col4.metric("Average Position", f"{dates['Position'].mean():.2f}", 
+            delta=f"{filtered_dates['Position'].mean() - dates['Position'].mean():.2f}")
 
-    with st.expander("📘 What does this chart mean?"):
-        st.markdown("This shows daily visibility and engagement. Spikes mean strong performance or keyword lifts.")
+# Visualizations
+st.subheader("Performance Over Time")
+fig_time = px.line(filtered_dates, x="Date", y=["Clicks", "Impressions"], 
+                   title="Clicks and Impressions Trend",
+                   labels={"value": "Count", "variable": "Metric"})
+fig_time.update_layout(hovermode="x unified", template="plotly_white")
+st.plotly_chart(fig_time, use_container_width=True)
 
-    # Tabs: Queries, Pages, Devices, Countries
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Queries", "📄 Pages", "📱 Devices", "🌍 Countries"])
+st.subheader("Top Queries by Clicks")
+fig_queries = px.bar(queries.head(10), x="Top queries", y="Clicks", 
+                     title="Top 10 Search Queries",
+                     color="CTR", color_continuous_scale="Viridis")
+fig_queries.update_layout(template="plotly_white")
+st.plotly_chart(fig_queries, use_container_width=True)
 
-    with tab1:
-        st.markdown("#### Top Queries by Clicks")
-        st.dataframe(queries_df.head(10))
-        selected_query = st.selectbox("View query trend", queries_df['Top queries'].head(10))
-        filtered = queries_df[queries_df['Top queries'] == selected_query]
-        st.markdown(f"**Performance for:** `{selected_query}`")
-        st.dataframe(filtered)
+st.subheader("Top Pages by Clicks")
+fig_pages = px.bar(pages.head(10), x="Top pages", y="Clicks", 
+                   title="Top 10 Pages",
+                   color="CTR", color_continuous_scale="Plasma")
+fig_pages.update_layout(template="plotly_white", xaxis_tickangle=45)
+st.plotly_chart(fig_pages, use_container_width=True)
 
-    with tab2:
-        st.markdown("#### Top Pages by Clicks")
-        st.dataframe(pages_df.head(10))
-        st.markdown("Hover over each column to sort and discover which URLs drive the most clicks.")
+st.subheader("Performance by Country")
+fig_countries = px.choropleth(filtered_countries, 
+                              locations="Country", 
+                              locationmode="country names",
+                              color="Clicks",
+                              hover_data=["Impressions", "CTR", "Position"],
+                              title="Clicks by Country",
+                              color_continuous_scale="Blues")
+fig_countries.update_layout(template="plotly_white")
+st.plotly_chart(fig_countries, use_container_width=True)
 
-    with tab3:
-        st.markdown("#### Device Click Distribution")
-        fig = px.pie(devices_df, names='Device', values='Clicks', color_discrete_sequence=['#00FF00', '#FFFFFF', '#333333'])
-        fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
+st.subheader("Device Breakdown")
+fig_devices = px.pie(filtered_devices, names="Device", values="Clicks", 
+                     title="Clicks by Device",
+                     color_discrete_sequence=px.colors.qualitative.Pastel)
+fig_devices.update_layout(template="plotly_white")
+st.plotly_chart(fig_devices, use_container_width=True)
 
-    with tab4:
-        st.markdown("#### Top Countries by Impressions")
-        fig = px.bar(countries_df.sort_values(by='Impressions', ascending=True),
-                     x='Impressions', y='Country', orientation='h',
-                     color='Impressions', color_continuous_scale=['#333333', '#00FF00'])
-        fig.update_layout(template='plotly_dark')
-        st.plotly_chart(fig, use_container_width=True)
+st.subheader("Search Appearance")
+fig_search = px.bar(search_appearance, x="Search Appearance", y="Clicks", 
+                    title="Clicks by Search Appearance",
+                    color="CTR", color_continuous_scale="Inferno")
+fig_search.update_layout(template="plotly_white")
+st.plotly_chart(fig_search, use_container_width=True)
 
-else:
-    st.warning("⬅️ Please upload all 5 required GSC CSV files to begin.")
+# Data tables
+st.subheader("Detailed Data")
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Queries", "Pages", "Countries", "Devices", "Search Appearance"])
+with tab1:
+    st.dataframe(queries)
+with tab2:
+    st.dataframe(pages)
+with tab3:
+    st.dataframe(filtered_countries)
+with tab4:
+    st.dataframe(filtered_devices)
+with tab5:
+    st.dataframe(search_appearance)
 
 # Footer
-st.markdown("""
-    <hr>
-    <div style='text-align:center; color:#00FF00; font-family: Poppins'>
-        Powered by Zechanah Tokar · <a style='color:#00FF00' href='https://www.zechanahtokar.com' target='_blank'>www.zechanahtokar.com</a>
-    </div>
-""", unsafe_allow_html=True)
+st.markdown("---")
+st.markdown("Built with ❤️ using Streamlit | Data from Google Search Console")
